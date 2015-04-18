@@ -3,8 +3,8 @@
 _ENV="base"
 
 usage() {
-    cat <<EOF 
-Usage: $0 <vpn> <action> ...
+    cat <<EOF >&2
+Usage: $(basename $0) <vpn name> <action> ...
 
 ACTIONS:
 build-client <common_name>
@@ -36,11 +36,14 @@ print() {
 }
 
 print_error() {
-    print "$*" >&2
+    print "ERROR: $*" >&2
 }
 
 usage_exit() {
-    print_error "$*"
+    if [[ "$*" ]] ; then
+        print_error "$*
+        "
+    fi
     usage
     exit 1
 }
@@ -59,13 +62,11 @@ fail_unless() {
 }
 
 if (( $# < 1 )) ; then
-    print_error "ERROR: No VPN name defined."
-    usage_exit
+    usage_exit "No VPN name defined."
 fi
 
 if (( $# < 2 )) ; then
-    print_error "ERROR: No action defined."
-    usage_exit
+    usage_exit "No action defined."
 fi
 
 vpn="$1"
@@ -108,14 +109,15 @@ _salt_server="${_salt_certs}/server"
 _salt_clients="${_salt_certs}/clients"
 _salt_shared="${_salt_certs}/shared"
 
-for d in "${_salt_secret}" "${_salt_server}" "${_salt_clients}" "${_salt_shared}" ; do
-    fail_unless mkdir -pv "${d}"
-done
-
 if [[ ! -d "${_salt_certs_base}" ]] ; then
-    print_error "Salt OpenVPN base directory \"${_salt_certs_base}\" not found" >&2
-    exit 1
+    error_exit "Salt OpenVPN base directory \"${_salt_certs_base}\" not found"
 fi
+
+fail_unless mkdir -pv "${_salt_certs}"
+fail_unless mkdir -pv "${_salt_secret}"
+fail_unless mkdir -pv "${_salt_server}"
+fail_unless mkdir -pv "${_salt_clients}"
+fail_unless mkdir -pv "${_salt_shared}"
 
 build_client() {
     common_name="$1"
@@ -131,7 +133,7 @@ build_client() {
     fi
 
     target="${_salt_clients}/${common_name}"
-    mkdir "${target}"
+    fail_unless mkdir -v "${target}"
     fail_unless cp -v "${cert}" "${target}"
     fail_unless cp -v "${key}" "${target}"
 }
@@ -212,43 +214,43 @@ clean_all() {
 
 case "${action}" in
 "build-client")
-    (( $# != 1 )) && usage_exit "ERROR: client name not defined."
+    (( $# != 1 )) && usage_exit "Client name not defined."
     common_name="$1"
     build_client "${common_name}"
     ;;
 
 "build-ca")
-    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
     build_ca
     ;;
 
 "build-server")
-    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
     build_server
     ;;
 
 "build-dh")
-    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
     build_dh
     ;;
 
 "build-tls-auth")
-    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
     build_tls_auth
     ;;
 
 "bootstrap")
-    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
     boostrap
     ;;
 
 "clean-all")
-    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
     clean_all
     ;;
 
 "*")
-    print_error "ERROR: Unknown action \"${action}\"" >&2
+    print_error "Unknown action \"${action}\""
     usage_exit
     ;;
 esac
