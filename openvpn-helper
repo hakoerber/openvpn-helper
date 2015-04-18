@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+
+_ENV="base"
+
+usage() {
+    cat <<EOF 
+Usage: $0 <vpn> <action> ...
+
+ACTIONS:
+build-client <common_name>
+    build a new certificate for a client
+
+build-ca
+    build a certificate authority
+
+build-server
+    build a new certificate for the server
+
+build-dh
+    build Diffie-Hellman parameters for the server
+
+build-tls-auth
+    build a tls key for HMAC authentication
+
+bootstrap
+    build a new server infrastructure from scratch
+    combines build-ca, build-server, build-dh and build-tls-auth
+
+clean-all
+    clean all files of the specified vpn
+EOF
+}
+
+print() {
+    printf "%s\n" "$*"
+}
+
+print_error() {
+    print "$*" >&2
+}
+
+usage_exit() {
+    print_error "$*"
+    usage
+    exit 1
+}
+
+error_exit() {
+    print_error "$*"
+    exit 1
+}
+
+fail_unless() {
+    print "Executing \"$*\""
+    "${@}"
+    if (( $? )) ; then
+        error_exit "Aborting."
+    fi
+}
+
+if (( $# < 1 )) ; then
+    print_error "ERROR: No VPN name defined."
+    usage_exit
+fi
+
+if (( $# < 2 )) ; then
+    print_error "ERROR: No action defined."
+    usage_exit
+fi
+
+vpn="$1"
+shift
+
+action="$1"
+shift
+
+set -o nounset
+
+_basedir="$(realpath "$(dirname "$0")")"
+
+_easy_rsa="${_basedir}/easy-rsa"
+if [[ ! -d "${_easy_rsa}" ]] ; then
+    error_exit "EasyRSA directory \"${_easy_rsa}\" not found."
+fi
+    
+_output_base_dir="${_basedir}/keys"
+if [[ ! -d "${_output_base_dir}" ]] ; then
+    error_exit "Output directory \"${_output_base_dir}\" not found."
+fi
+
+_output_dir="${_output_base_dir}/${vpn}"
+fail_unless mkdir -pv "${_output_dir}"
+
+_vars_dir="${_basedir}/vars"
+if [[ ! -d "${_vars_dir}" ]] ; then
+    error_exit "Vars directory \"${_vars_dir}\" not found."
+fi
+
+_vars_file="${_vars_dir}/${vpn}"
+if [[ ! -e "${_vars_file}" ]] ; then
+    error_exit "Vars file \"${_vars_file}\" not found."
+fi
+
+_salt_certs_base="${_basedir}/../${_ENV}/files/openvpn"
+_salt_certs="${_salt_certs_base}/${vpn}"
+_salt_secret="${_salt_certs}/secret"
+_salt_server="${_salt_certs}/server"
+_salt_clients="${_salt_certs}/clients"
+_salt_shared="${_salt_certs}/shared"
+
+for d in "${_salt_secret}" "${_salt_server}" "${_salt_clients}" "${_salt_shared}" ; do
+    fail_unless mkdir -pv "${d}"
+done
+
+if [[ ! -d "${_salt_certs_base}" ]] ; then
+    print_error "Salt OpenVPN base directory \"${_salt_certs_base}\" not found" >&2
+    exit 1
+fi
+
+build_client() {
+    common_name="$1"
+    cert="${_output_dir}/${common_name}.crt"
+    key="${_output_dir}/${common_name}.key"
+
+    if [[ -e "${cert}" ]] && [[ -e "${key}" ]]; then
+        print "Certificate already present. Skipping generation."
+    else
+        print "Certificate needs to be generated."
+        source "${_vars_file}"
+        fail_unless "${_easy_rsa}/pkitool" "${common_name}"
+    fi
+
+    target="${_salt_clients}/${common_name}"
+    mkdir "${target}"
+    fail_unless cp -v "${cert}" "${target}"
+    fail_unless cp -v "${key}" "${target}"
+}
+
+build_ca() {
+    cert="${_output_dir}/ca.crt"
+    key="${_output_dir}/ca.key"
+
+    echo "${cert}"
+    echo "${key}"
+
+    if [[ -e "${cert}" ]] && [[ -e "${key}" ]] ; then
+        print "Certificate already present. Skipping generation."
+    else
+        print "Certificate needs to be generated."
+        source "${_vars_file}"
+        fail_unless "${_easy_rsa}/pkitool" --initca
+    fi
+
+    fail_unless cp -v "${cert}" "${_salt_shared}"
+    fail_unless cp -v "${key}" "${_salt_secret}"
+}
+
+build_server() {
+    cert="${_output_dir}/server.crt"
+    key="${_output_dir}/server.key"
+
+    if [[ -e "${cert}" ]] && [[ -e "${key}" ]] ; then
+        print "Certificate already present. Skipping generation."
+    else
+        print "Certificate needs to be generated."
+        source "${_vars_file}"
+        fail_unless "${_easy_rsa}/pkitool" --server server
+    fi
+
+    fail_unless cp -v "${cert}" "${_salt_server}"
+    fail_unless cp -v "${key}" "${_salt_server}"
+}
+
+build_dh() {
+    dh="${_output_dir}/dh2048.pem"
+
+    if [[ -e "${dh}" ]] ; then
+        print "Diffie Hellman parameters already present. Skipping generation."
+    else
+        print "Diffie Hellman parameters need to be generated."
+        source "${_vars_file}"
+        fail_unless "${_easy_rsa}/build-dh"
+    fi
+
+    fail_unless cp -v "${dh}" "${_salt_server}"
+}
+
+build_tls_auth() {
+    ta="${_output_dir}/ta.key"
+    if [[ -e "${ta}" ]] ; then
+        print "HMAC key already present. Skipping generation."
+    else
+        print "HMAC key needs to be generated."
+        fail_unless openvpn --genkey --secret "${ta}"
+    fi
+
+    fail_unless cp -v "${ta}" "${_salt_shared}"
+}
+
+boostrap() {
+    clean_all
+    build_ca
+    build_server
+    build_dh
+    build_tls_auth
+}
+
+clean_all() {
+    source "${_vars_file}"
+    "${_easy_rsa}/clean-all"
+}
+
+case "${action}" in
+"build-client")
+    (( $# != 1 )) && usage_exit "ERROR: client name not defined."
+    common_name="$1"
+    build_client "${common_name}"
+    ;;
+
+"build-ca")
+    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    build_ca
+    ;;
+
+"build-server")
+    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    build_server
+    ;;
+
+"build-dh")
+    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    build_dh
+    ;;
+
+"build-tls-auth")
+    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    build_tls_auth
+    ;;
+
+"bootstrap")
+    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    boostrap
+    ;;
+
+"clean-all")
+    (( $# != 0 )) && usage_exit "ERROR: too many arguments defined."
+    clean_all
+    ;;
+
+"*")
+    print_error "ERROR: Unknown action \"${action}\"" >&2
+    usage_exit
+    ;;
+esac
