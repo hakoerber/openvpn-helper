@@ -134,8 +134,8 @@ build_client() {
 
     target="${_salt_clients}/${common_name}"
     fail_unless mkdir -v "${target}"
-    fail_unless cp -v "${cert}" "${target}"
-    fail_unless cp -v "${key}" "${target}"
+    fail_unless cp -v "${cert}" "${target}"/client.crt
+    fail_unless cp -v "${key}" "${target}"/client.key
 }
 
 build_ca() {
