@@ -20,6 +20,9 @@ build-dh
 build-tls-auth
     build a tls key for HMAC authentication
 
+build-empty-crl
+    build an empty CRL
+
 bootstrap
     build a new server infrastructure from scratch
     combines build-ca, build-server, build-dh and build-tls-auth
@@ -196,6 +199,28 @@ build_tls_auth() {
     fail_unless cp -v "${ta}" "${_out_shared}"
 }
 
+build_empty_crl() {
+    cert="${_output_dir}/ca.crt"
+    key="${_output_dir}/ca.key"
+    crl="${_output_dir}/crl.pem"
+
+    source "${_vars_file}"
+
+    if [[ ! -e "${cert}" ]] || [[ ! -e "${key}" ]] ; then
+        error_exit "CA cert and key must be available for CRL generation."
+    fi
+
+    if [[ -e "${crl}" ]] ; then
+        print "CRL already present. Skipping generation."
+    else
+        print "CRL needs to be generated."
+        source "${_vars_file}"
+        fail_unless openssl ca -gencrl -crldays $((365*10)) -keyfile "${key}" -cert "${cert}" -out "${crl}" -config "$KEY_CONFIG"
+    fi
+
+    fail_unless cp -v "${crl}" "${_salt_server}"
+}
+
 boostrap() {
     clean_all
     build_ca
@@ -234,6 +259,11 @@ case "${action}" in
 "build-tls-auth")
     (( $# != 0 )) && usage_exit "Too many arguments defined."
     build_tls_auth
+    ;;
+
+"build-empty-crl")
+    (( $# != 0 )) && usage_exit "Too many arguments defined."
+    build_empty_crl
     ;;
 
 "bootstrap")
