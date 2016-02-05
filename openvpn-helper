@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-_ENV="base"
-
 usage() {
     cat <<EOF >&2
 Usage: $(basename $0) <vpn name> <action> ...
@@ -83,14 +81,16 @@ _easy_rsa="${_basedir}/easy-rsa"
 if [[ ! -d "${_easy_rsa}" ]] ; then
     error_exit "EasyRSA directory \"${_easy_rsa}\" not found."
 fi
-    
-_output_base_dir="${_basedir}/keys"
+
+_output_base_dir="${_basedir}/build"
+
 if [[ ! -d "${_output_base_dir}" ]] ; then
     error_exit "Output directory \"${_output_base_dir}\" not found."
 fi
 
 _output_dir="${_output_base_dir}/${vpn}"
 fail_unless mkdir -pv "${_output_dir}"
+
 
 _vars_dir="${_basedir}/vars"
 if [[ ! -d "${_vars_dir}" ]] ; then
@@ -102,22 +102,22 @@ if [[ ! -e "${_vars_file}" ]] ; then
     error_exit "Vars file \"${_vars_file}\" not found."
 fi
 
-_salt_certs_base="${_basedir}/../${_ENV}/files/openvpn"
-_salt_certs="${_salt_certs_base}/${vpn}"
-_salt_secret="${_salt_certs}/secret"
-_salt_server="${_salt_certs}/server"
-_salt_clients="${_salt_certs}/clients"
-_salt_shared="${_salt_certs}/shared"
+_out_certs_base="${_basedir}/keys"
+_out_certs="${_out_certs_base}/${vpn}"
+_out_secret="${_out_certs}/secret"
+_out_server="${_out_certs}/server"
+_out_clients="${_out_certs}/clients"
+_out_shared="${_out_certs}/shared"
 
-if [[ ! -d "${_salt_certs_base}" ]] ; then
-    error_exit "Salt OpenVPN base directory \"${_salt_certs_base}\" not found"
+if [[ ! -d "${_out_certs_base}" ]] ; then
+    error_exit "Output directory \"${_out_certs_base}\" not found"
 fi
 
-fail_unless mkdir -pv "${_salt_certs}"
-fail_unless mkdir -pv "${_salt_secret}"
-fail_unless mkdir -pv "${_salt_server}"
-fail_unless mkdir -pv "${_salt_clients}"
-fail_unless mkdir -pv "${_salt_shared}"
+fail_unless mkdir -pv "${_out_certs}"
+fail_unless mkdir -pv "${_out_secret}"
+fail_unless mkdir -pv "${_out_server}"
+fail_unless mkdir -pv "${_out_clients}"
+fail_unless mkdir -pv "${_out_shared}"
 
 build_client() {
     common_name="$1"
@@ -132,8 +132,8 @@ build_client() {
         fail_unless "${_easy_rsa}/pkitool" "${common_name}"
     fi
 
-    target="${_salt_clients}/${common_name}"
-    fail_unless mkdir -v "${target}"
+    target="${_out_clients}/${common_name}"
+    fail_unless mkdir -vp "${target}"
     fail_unless cp -v "${cert}" "${target}"/client.crt
     fail_unless cp -v "${key}" "${target}"/client.key
 }
@@ -141,9 +141,6 @@ build_client() {
 build_ca() {
     cert="${_output_dir}/ca.crt"
     key="${_output_dir}/ca.key"
-
-    echo "${cert}"
-    echo "${key}"
 
     if [[ -e "${cert}" ]] && [[ -e "${key}" ]] ; then
         print "Certificate already present. Skipping generation."
@@ -153,8 +150,8 @@ build_ca() {
         fail_unless "${_easy_rsa}/pkitool" --initca
     fi
 
-    fail_unless cp -v "${cert}" "${_salt_shared}"
-    fail_unless cp -v "${key}" "${_salt_secret}"
+    fail_unless cp -v "${cert}" "${_out_shared}"
+    fail_unless cp -v "${key}" "${_out_secret}"
 }
 
 build_server() {
@@ -169,8 +166,8 @@ build_server() {
         fail_unless "${_easy_rsa}/pkitool" --server server
     fi
 
-    fail_unless cp -v "${cert}" "${_salt_server}"
-    fail_unless cp -v "${key}" "${_salt_server}"
+    fail_unless cp -v "${cert}" "${_out_server}"
+    fail_unless cp -v "${key}" "${_out_server}"
 }
 
 build_dh() {
@@ -184,7 +181,7 @@ build_dh() {
         fail_unless "${_easy_rsa}/build-dh"
     fi
 
-    fail_unless cp -v "${dh}" "${_salt_server}"
+    fail_unless cp -v "${dh}" "${_out_server}"
 }
 
 build_tls_auth() {
@@ -196,7 +193,7 @@ build_tls_auth() {
         fail_unless openvpn --genkey --secret "${ta}"
     fi
 
-    fail_unless cp -v "${ta}" "${_salt_shared}"
+    fail_unless cp -v "${ta}" "${_out_shared}"
 }
 
 boostrap() {
@@ -249,7 +246,7 @@ case "${action}" in
     clean_all
     ;;
 
-"*")
+*)
     print_error "Unknown action \"${action}\""
     usage_exit
     ;;
